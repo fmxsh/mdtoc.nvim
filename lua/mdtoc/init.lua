@@ -979,33 +979,34 @@ function M.start()
 	attach_autocmd()
 	attach_cursor_autocmd()
 
-	-- Clear any previous TOC usage
-	M.disable()
-	-- The user can now run :lua require('your_module_name').toggle() or :MDtoc, etc.
-end
-
-vim.api.nvim_create_autocmd({ "BufDelete", "WinClosed" }, {
-	callback = function(args)
-		local buf_name = vim.api.nvim_buf_get_name(args.buf)
-		if not buf_name:match("xmdtocx") then
+	-- some more autocmds
+	vim.api.nvim_create_autocmd({ "BufDelete", "WinClosed" }, {
+		callback = function(args)
+			local buf_name = vim.api.nvim_buf_get_name(args.buf)
+			if not buf_name:match("xmdtocx") then
 			--log("A non-TOC buffer was deleted or window closed => disabling TOC")
 			-- TODO: Not needed... we reuse the exisitng float.. this one line is executed after a few sec after windows open close, and it closes toc
 			--M.disable()
-		else
-			log("TOC buffer was deleted, ignoring...")
-		end
-	end,
-})
+			else
+				log("TOC buffer was deleted, ignoring...")
+			end
+		end,
+	})
 
--- create same but for entering buffer
-vim.api.nvim_create_autocmd({ "BufEnter" }, {
-	callback = function(args)
-		log("Buffer entered")
-		M.enable()
-		vim.defer_fn(function()
-			highlight_active_toc_entry()
-		end, 1)
-	end,
-})
+	-- create same but for entering buffer
+	vim.api.nvim_create_autocmd({ "BufEnter" }, {
+		callback = function(args)
+			log("Buffer entered")
+			M.enable()
+			vim.defer_fn(function()
+				highlight_active_toc_entry()
+			end, 1)
+		end,
+	})
+	-- Clear any previous TOC usage
+	-- TODO: is this needed by now?
+	M.disable()
+	-- The user can now run :lua require('your_module_name').toggle() or :MDtoc, etc.
+end
 
 return M
