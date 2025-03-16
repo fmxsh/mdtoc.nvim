@@ -142,6 +142,8 @@ local function open_scratch_window()
 	--
 	--
 	--
+	--
+
 	local current_buf = vim.api.nvim_get_current_buf()
 	local current_win = vim.api.nvim_get_current_win()
 
@@ -201,8 +203,6 @@ local function open_scratch_window()
 	vim.wo[scratch_win].number = false
 	vim.wo[scratch_win].relativenumber = false
 	vim.wo[scratch_win].scrolloff = 0
-
-	is_active = true
 
 	-- Autocmd to handle the floating window’s lifecycle
 	vim.api.nvim_create_autocmd("WinClosed", {
@@ -533,12 +533,16 @@ local function attach_autocmd()
 	-- Update TOC when we enter or write to a markdown/lua buffer
 	vim.api.nvim_create_autocmd({ "WinClosed", "WinEnter", "BufEnter", "BufWinEnter", "BufWritePost", "InsertLeave" }, {
 		callback = function()
+			log("WinClosed, WinEnter, BufEnter, BufWinEnter, BufWritePost, InsertLeave")
+			-- log what event it was triggered
 			if not is_active then
 				return
 			end
+			log("is_active")
 			local current_buf = vim.api.nvim_get_current_buf()
 			local ft = vim.bo[current_buf].filetype
 			if ft == "markdown" or ft == "lua" then
+				log("ft == markdown or lua")
 				last_active_buf = current_buf
 				last_active_win = vim.api.nvim_get_current_win()
 				vim.defer_fn(M.update_scratch_buffer, 100)
@@ -580,9 +584,12 @@ end
 function M.toggle()
 	if is_active then
 		close_scratch_window()
+		-- TODO:: This flag is set in above func too...
+		is_active = false
 	else
 		local old_win = vim.api.nvim_get_current_win()
 		open_scratch_window()
+		is_active = true
 		M.update_scratch_buffer()
 		-- Return focus to the user’s previous window
 		if vim.api.nvim_win_is_valid(old_win) then
@@ -816,6 +823,13 @@ vim.api.nvim_create_autocmd({ "BufDelete", "WinClosed" }, {
 	callback = function(args)
 		log("Buffer deleted or window closed")
 		M.disable()
+	end,
+})
+-- create same but for entering buffer
+vim.api.nvim_create_autocmd({ "BufEnter" }, {
+	callback = function(args)
+		log("Buffer entered")
+		M.enable()
 	end,
 })
 return M
