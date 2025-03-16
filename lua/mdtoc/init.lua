@@ -1011,6 +1011,10 @@ local function update_statusline_text()
 	for _, heading in ipairs(toc_headings) do
 		if heading.line <= current_line then
 			-- Store valid parent heading for its level
+			-- Clear deeper levels when moving up
+			for lvl = heading.level + 1, 6 do
+				last_valid_parents[lvl] = nil
+			end
 			last_valid_parents[heading.level] = heading.text
 		else
 			break -- Stop checking when passing the current cursor position
