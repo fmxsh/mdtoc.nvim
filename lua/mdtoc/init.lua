@@ -975,6 +975,156 @@ function M.telescope_headings()
 		:find()
 end
 
+------------ Bottom status line showing what header you are in
+local statusline_buf = nil
+local statusline_win = nil
+
+local function update_statusline_text()
+	if not statusline_win or not vim.api.nvim_win_is_valid(statusline_win) then
+		return
+	end
+
+	local current_line = vim.api.nvim_win_get_cursor(0)[1] - 1
+	local breadcrumbs = {}
+
+	-- Get the full file path
+	local file_path = vim.api.nvim_buf_get_name(0)
+	if file_path == "" then
+		file_path = "[No Name]" -- Handle unnamed buffers
+	end
+
+	-- Track last valid parents at each level
+	local last_valid_parents = {}
+
+	-- Define highlight groups mapping
+	local hl_groups = opts.hl_groups or {}
+	local hl_map = {
+		[1] = "MDTocHeading1",
+		[2] = "MDTocHeading2",
+		[3] = "MDTocHeading3",
+		[4] = "MDTocHeading4",
+		[5] = "MDTocHeading5",
+		[6] = "MDTocHeading6",
+	}
+
+	-- Iterate through headings in order
+	for _, heading in ipairs(toc_headings) do
+		if heading.line <= current_line then
+			-- Store valid parent heading for its level
+			last_valid_parents[heading.level] = heading.text
+		else
+			break -- Stop checking when passing the current cursor position
+		end
+	end
+
+	-- Assemble correct hierarchical structure
+	local display_parts = {}
+	local highlight_info = {}
+
+	-- Traverse from level 1 up to find non-nil parents
+	for level = 1, 6 do
+		local heading_text = last_valid_parents[level]
+		if heading_text then
+			local hl_group = hl_map[level] or "MDTocHeading1"
+
+			-- Ensure highlight exists
+			if hl_groups["h" .. level] then
+				vim.api.nvim_set_hl(0, hl_group, hl_groups["h" .. level])
+			end
+
+			-- Store breadcrumb with highlight info
+			table.insert(display_parts, heading_text)
+			table.insert(highlight_info, { text = heading_text, hl = hl_group })
+		end
+	end
+
+	-- Ensure fallback text if no headings found
+	if #display_parts == 0 then
+		display_parts = { "No Heading" }
+		highlight_info = { { text = "No Heading", hl = "Normal" } }
+	end
+
+	-- Construct the final display text for headings
+	local heading_text = table.concat(display_parts, " > ")
+
+	-- Temporarily enable modifications
+	vim.bo[statusline_buf].modifiable = true
+	vim.api.nvim_buf_set_lines(statusline_buf, 0, -1, false, { file_path, "  " .. heading_text })
+	vim.bo[statusline_buf].modifiable = false -- Lock buffer again
+
+	-- Apply highlights correctly
+	vim.api.nvim_buf_clear_namespace(statusline_buf, -1, 0, -1) -- Clear previous highlights
+
+	-- Apply highlights for headings
+	local pos = 2 -- Account for leading space
+	for _, item in ipairs(highlight_info) do
+		local hl_group = item.hl
+		local text_length = #item.text
+		vim.api.nvim_buf_add_highlight(statusline_buf, -1, hl_group, 1, pos, pos + text_length) -- Apply to second line
+		pos = pos + text_length + 3 -- Move past " > "
+	end
+end
+
+local function create_statusline_window()
+	if statusline_win and vim.api.nvim_win_is_valid(statusline_win) then
+		return
+	end
+
+	-- Create a scratch buffer if it doesn't exist
+	if not statusline_buf or not vim.api.nvim_buf_is_valid(statusline_buf) then
+		statusline_buf = vim.api.nvim_create_buf(false, true)
+		vim.api.nvim_buf_set_name(statusline_buf, "current_heading_status")
+		vim.bo[statusline_buf].buftype = "nofile"
+		vim.bo[statusline_buf].bufhidden = "wipe"
+		vim.bo[statusline_buf].modifiable = true -- Allow modifications temporarily
+		vim.bo[statusline_buf].swapfile = false
+	end
+
+	-- Get editor dimensions
+	local editor_width = vim.o.columns
+	local editor_height = vim.o.lines
+
+	-- Floating window options
+	local float_opts = {
+		relative = "editor",
+		width = editor_width,
+		height = 2,
+		row = editor_height - 4,
+		col = 0,
+		style = "minimal",
+		border = "none",
+	}
+
+	-- Open the floating window
+	statusline_win = vim.api.nvim_open_win(statusline_buf, false, float_opts)
+
+	-- Set highlight for transparency and visibility
+	vim.api.nvim_set_hl(0, "StatuslineFloatBG", { bg = "NONE", fg = "#ffffff", bold = false })
+	vim.api.nvim_set_option_value("winhl", "NormalFloat:StatuslineFloatBG", { win = statusline_win })
+	vim.api.nvim_set_option_value("winblend", 20, { win = statusline_win })
+	vim.wo[statusline_win].winblend = 20
+	vim.wo[statusline_win].number = false
+	vim.wo[statusline_win].relativenumber = false
+	vim.wo[statusline_win].wrap = false
+	vim.wo[statusline_win].scrolloff = 0
+
+	-- Call the update function after creation
+	update_statusline_text()
+end
+
+-- Auto update on cursor move
+vim.api.nvim_create_autocmd({ "CursorMoved", "BufEnter" }, {
+	callback = function()
+		create_statusline_window()
+		update_statusline_text()
+	end,
+})
+
+function M.fix_statusline()
+	create_statusline_window()
+	update_statusline_text()
+end
+
 function M.start()
 	attach_autocmd()
 	attach_cursor_autocmd()
@@ -1001,12 +1151,16 @@ function M.start()
 			vim.defer_fn(function()
 				log("deferred highlight active toc entry")
 				highlight_active_toc_entry()
+				create_statusline_window()
+				update_statusline_text()
 			end, 1)
 		end,
 	})
 	-- To run first time after startup
 	vim.defer_fn(function()
 		highlight_active_toc_entry()
+		create_statusline_window()
+		update_statusline_text()
 	end, 1)
 	-- Clear any previous TOC usage
 	-- TODO: is this needed by now?
