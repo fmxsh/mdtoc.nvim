@@ -11,6 +11,9 @@ Not only markdown: Because of treesitter, it can parse anything. Works the same 
 > [!Caution]
 > Bug Alert: This is a buggy plugin not intended for public usability, but will probably be improved over time, and maybe made into a proper plugin.
 
+> [!Note]
+> Mostly made to integrate with a personal project manager that is not published anywhere yet.
+
 About the code: This code was boilerplate genrated by ChatGPT, 4o and o1 in iterations alongside fixing bugs and adding features by hand.
 
 Requirements:
