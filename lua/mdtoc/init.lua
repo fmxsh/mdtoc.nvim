@@ -1004,7 +1004,7 @@ vim.api.nvim_create_autocmd({ "BufEnter" }, {
 		M.enable()
 		vim.defer_fn(function()
 			highlight_active_toc_entry()
-		end, 10)
+		end, 1)
 	end,
 })
 
