@@ -36,7 +36,7 @@ local default_opts = {
 	--float_width_ratio = 0.2, -- 20% of editor width
 	--float_height_ratio = 0.8, -- 80% of editor height
 	-- NOTE: hardcoded settings further down for now
-	float_width = 40,
+	float_width = 25,
 
 	-- If you want to anchor the window to the right, left, or center, tweak float_col_offset.
 	-- E.g. for the right side, a typical approach might be:
@@ -999,10 +999,15 @@ function M.start()
 			log("Buffer entered")
 			M.enable()
 			vim.defer_fn(function()
+				log("deferred highlight active toc entry")
 				highlight_active_toc_entry()
 			end, 1)
 		end,
 	})
+	-- To run first time after startup
+	vim.defer_fn(function()
+		highlight_active_toc_entry()
+	end, 1)
 	-- Clear any previous TOC usage
 	-- TODO: is this needed by now?
 	M.disable()
