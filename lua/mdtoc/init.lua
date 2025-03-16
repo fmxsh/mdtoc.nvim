@@ -81,8 +81,22 @@ local last_active_buf = nil -- The markdown (or lua) buffer
 local last_active_win = nil -- The markdown (or lua) window
 local toc_headings = {}
 
+--local function find_buffer_by_name(target_name)
+--	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+--		if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_get_name(buf):find(target_name, 1, true) then
+--			return buf -- ✅ Found buffer, return its ID
+--		end
+--	end
+--	return nil -- ❌ Not found
+--end
+
 -- Create or get the scratch buffer
 local function get_scratch_buffer()
+	--	local existing_buf = find_buffer_by_name("xmdtocx")
+	--	if existing_buf then
+	--		return existing_buf -- ✅ Return existing buffer ID
+	--	end
+
 	if scratch_buf and vim.api.nvim_buf_is_valid(scratch_buf) then
 		return scratch_buf
 	end
@@ -94,6 +108,7 @@ local function get_scratch_buffer()
 	vim.bo[scratch_buf].swapfile = false
 	vim.bo[scratch_buf].filetype = "mdtoc"
 	vim.bo[scratch_buf].modifiable = false
+	vim.bo[scratch_buf].undolevels = -1
 
 	return scratch_buf
 end
@@ -418,17 +433,21 @@ function M.update_scratch_buffer()
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 
 	-- Highlight them
-	for i, heading in ipairs(headings) do
-		local spaces = heading:match("^%s*") or ""
-		local level = math.floor((#spaces / 2) + 1)
-		level = math.max(1, math.min(level, 6))
-		local hl_group = hl_map[level] or "MDTocHeading1"
+	vim.defer_fn(function()
+		for i, heading in ipairs(headings) do
+			local spaces = heading:match("^%s*") or ""
+			local level = math.floor((#spaces / 2) + 1)
+			level = math.max(1, math.min(level, 6))
+			local hl_group = hl_map[level] or "MDTocHeading1"
 
-		vim.defer_fn(function()
+			-- check if buf is valid if not, run get scratch
+			if not vim.api.nvim_buf_is_valid(buf) then
+				buf = get_scratch_buffer()
+			end
+
 			vim.api.nvim_buf_add_highlight(buf, -1, hl_group, i - 1, 0, -1)
-		end, 10)
-	end
-
+		end
+	end, 10)
 	vim.bo[buf].modifiable = false
 end
 
@@ -793,4 +812,10 @@ function M.start()
 	-- The user can now run :lua require('your_module_name').toggle() or :MDtoc, etc.
 end
 
+vim.api.nvim_create_autocmd({ "BufDelete", "WinClosed" }, {
+	callback = function(args)
+		log("Buffer deleted or window closed")
+		M.disable()
+	end,
+})
 return M
