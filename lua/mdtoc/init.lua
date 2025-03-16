@@ -709,10 +709,8 @@ end
 
 local function detach_lsp_from_buffer(buf)
 	if vim.api.nvim_buf_is_valid(buf) then
-		for _, client in pairs(vim.lsp.get_active_clients()) do
-			if client.attached_buffers[buf] then
-				vim.lsp.buf_detach_client(buf, client.id)
-			end
+		for _, client in ipairs(vim.lsp.get_clients({ bufnr = buf })) do
+			vim.lsp.buf_detach_client(buf, client.id)
 		end
 	end
 end
@@ -810,6 +808,173 @@ end
 --group = vim.api.nvim_create_augroup("TocCursorCheckGroup", { clear = true }),
 --callback = maybe_hide_float,
 --})
+--
+--
+
+-- Move cursor to the next heading in the source buffer
+function M.next_heading()
+	if not last_active_win or not vim.api.nvim_win_is_valid(last_active_win) then
+		return
+	end
+
+	local cursor = vim.api.nvim_win_get_cursor(last_active_win)
+	local cursor_line = cursor[1] - 1
+
+	for _, heading in ipairs(toc_headings) do
+		if heading.line > cursor_line then
+			vim.api.nvim_win_set_cursor(last_active_win, { heading.line + 1, 0 })
+			return
+		end
+	end
+end
+
+-- Move cursor to the previous heading in the source buffer
+function M.prev_heading()
+	if not last_active_win or not vim.api.nvim_win_is_valid(last_active_win) then
+		return
+	end
+
+	local cursor = vim.api.nvim_win_get_cursor(last_active_win)
+	local cursor_line = cursor[1] - 1
+	local last_heading = nil
+
+	for _, heading in ipairs(toc_headings) do
+		if heading.line < cursor_line then
+			last_heading = heading
+		else
+			break
+		end
+	end
+
+	if last_heading then
+		vim.api.nvim_win_set_cursor(last_active_win, { last_heading.line + 1, 0 })
+	end
+end
+
+function M.telescope_headings()
+	local pickers = require("telescope.pickers")
+	local finders = require("telescope.finders")
+	local conf = require("telescope.config").values
+	local actions = require("telescope.actions")
+	local action_state = require("telescope.actions.state")
+	local entry_display = require("telescope.pickers.entry_display")
+
+	-- Ensure TOC exists
+	if not last_active_win or not vim.api.nvim_win_is_valid(last_active_win) then
+		return
+	end
+
+	-- Define highlight groups mapping
+	local hl_groups = opts.hl_groups or {}
+	local hl_map = {
+		[1] = "MDTocHeading1",
+		[2] = "MDTocHeading2",
+		[3] = "MDTocHeading3",
+		[4] = "MDTocHeading4",
+		[5] = "MDTocHeading5",
+		[6] = "MDTocHeading6",
+	}
+
+	-- Convert `toc_headings` to Telescope format
+	local heading_entries = {}
+
+	-- Track last seen parents for multi-column view
+	local last_parents = { [1] = nil, [2] = nil }
+
+	for _, heading in ipairs(toc_headings) do
+		local level = math.max(1, math.min(heading.level, 6)) -- Ensure valid level
+		local hl_group = hl_map[level] or "MDTocHeading1"
+
+		-- Store parents for display
+		if level > 1 then
+			last_parents[level] = heading.text
+		end
+
+		-- Find closest parent and grandparent
+		local parent = nil
+		local grandparent = nil
+
+		for i = level - 1, 1, -1 do
+			if last_parents[i] then
+				if not parent then
+					parent = last_parents[i]
+				else
+					grandparent = last_parents[i]
+					break
+				end
+			end
+		end
+
+		table.insert(heading_entries, {
+			display = heading.text,
+			value = heading.line + 1,
+			level = level,
+			parent = parent,
+			grandparent = grandparent,
+		})
+	end
+
+	-- If no headings found, exit
+	if #heading_entries == 0 then
+		vim.notify("No headings found!", vim.log.levels.WARN)
+		return
+	end
+
+	-- Custom entry maker for 3-column display
+	local function entry_maker(entry)
+		local hl_level = entry.level
+		local hl_group = hl_map[hl_level] or "MDTocHeading1"
+
+		-- Ensure highlight group exists
+		if hl_groups["h" .. hl_level] then
+			vim.api.nvim_set_hl(0, hl_group, hl_groups["h" .. hl_level])
+		end
+
+		local displayer = entry_display.create({
+			separator = " | ",
+			items = {
+				{ width = 40, hl = hl_map[hl_level - 2] or "" }, -- Grandparent (if exists)
+				{ width = 45, hl = hl_map[hl_level - 1] or "" }, -- Parent (if exists)
+				{ remaining = true, hl = hl_group }, -- Current heading
+			},
+		})
+
+		return {
+			value = entry.value,
+			ordinal = (entry.grandparent or "") .. " " .. (entry.parent or "") .. " " .. entry.display,
+			display = function()
+				return displayer({
+					{ entry.grandparent or "", hl_map[hl_level - 2] or "" },
+					{ entry.parent or "", hl_map[hl_level - 1] or "" },
+					{ entry.display, hl_group },
+				})
+			end,
+		}
+	end
+
+	-- Telescope Picker
+	pickers
+		.new({}, {
+			prompt_title = "Jump to Heading",
+			finder = finders.new_table({
+				results = heading_entries,
+				entry_maker = entry_maker,
+			}),
+			sorter = conf.generic_sorter({}),
+			attach_mappings = function(_, map)
+				actions.select_default:replace(function(prompt_bufnr)
+					local selection = action_state.get_selected_entry()
+					actions.close(prompt_bufnr)
+					if selection and selection.value then
+						vim.api.nvim_win_set_cursor(last_active_win, { selection.value, 0 })
+					end
+				end)
+				return true
+			end,
+		})
+		:find()
+end
+
 function M.start()
 	attach_autocmd()
 	attach_cursor_autocmd()
@@ -821,15 +986,24 @@ end
 
 vim.api.nvim_create_autocmd({ "BufDelete", "WinClosed" }, {
 	callback = function(args)
-		log("Buffer deleted or window closed")
-		M.disable()
+		local buf_name = vim.api.nvim_buf_get_name(args.buf)
+		if not buf_name:match("xmdtocx") then
+			--log("A non-TOC buffer was deleted or window closed => disabling TOC")
+			-- TODO: Not needed... we reuse the exisitng float.. this one line is executed after a few sec after windows open close, and it closes toc
+			--M.disable()
+		else
+			log("TOC buffer was deleted, ignoring...")
+		end
 	end,
 })
+
 -- create same but for entering buffer
 vim.api.nvim_create_autocmd({ "BufEnter" }, {
 	callback = function(args)
 		log("Buffer entered")
 		M.enable()
+		highlight_active_toc_entry()
 	end,
 })
+
 return M
