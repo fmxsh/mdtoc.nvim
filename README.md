@@ -4,7 +4,11 @@ _mdtoc_ stands for "Make Dynamic Table Of Contents".
 
 Why? I need visible overview of toc of large markdown files.
 
-Creates a floating window. Uses Treesitter to parse the markdown file and generate a table of contents. The table of contents (toc) is updated as the markdown file is edited. Moving around in the file moves the highlight in the toc-display. Moving in the toc display moves the cursor document in paralell.
+Creates a table of contents (toc) for markdown content **or any other format supported by Treesitter** (but you have to write the parser directives for it).
+
+The content is sent to a buf_id, which you create yourself (thus I made a plugin for it, [fixedspace.nvim](https://github.com/fmxsh/fixedspace.nvim)).
+
+The table of contents (toc) is updated as the markdown file is edited. Moving around in the file moves the highlight in the toc-display. Moving in the toc display moves the cursor document in paralell.
 
 Not only markdown: Because of treesitter, it can parse anything. Works the same for code, showing functions in the toc.
 
@@ -18,9 +22,9 @@ About the code: This code was boilerplate genrated by ChatGPT, 4o and o1 in iter
 
 Requirements:
 
-[fixedspace.nvim](https://github.com/fmxsh/fixedspace.nvim)
+- [fixedspace.nvim](https://github.com/fmxsh/fixedspace.nvim)
 
-Use the plugin _fixedspace_. The floating window is floating, meaning text goes under it. I want word-break at the edge of the toc-window. _Fixedspace_ creates a real non-enterable, non-editable window underneaht the floating window. This sounds like a bad solution, but my first attempt to create real-window-only solutoin messed things up. Later the float solution had its own design issues (text going under). I experimented with hiding the toc window when cursor was X number of characters close to it, but it amounted to an unintuitive clumsy ui anyway. A quick hack was to create a real window underneath, by the way of a separate plugin. I just need this to work, rather than how.
+- [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter)
 
 ## Installation
 
@@ -29,7 +33,7 @@ Integrated into my own project manager, to close and open on project switching.
 This goes into `.config/nvim/lua/custom/plugins/mdtoc.lua`, which is loaded by my highly modified kickstart.lua running Lazy plugin manager.
 
 > [!Note]
-> This is not provided in a user friendly way and not expected to be used as it is.
+> This is not provided in a user friendly way and not expected to be used as it is. Its my highly specific setup. The plugin is not made addapted for public use.
 
 ```lua
 return {
@@ -38,7 +42,7 @@ return {
   config = function()
     local colors = require 'nvim-color-theme.themes.pastel1_own'
     require('mdtoc').setup {
-      window_size = 40,
+      float_window = 20,
       -- Define highlight options for each heading level
       hl_groups = {
         h1 = { fg = colors.markup_heading_1 },
@@ -50,35 +54,28 @@ return {
       },
     }
     vim.api.nvim_create_autocmd('User', {
-      pattern = 'preSwitchToProject',
+      pattern = 'phxmanPostLoaded',
       callback = function()
-        require('mdtoc').disable()
+        -- Only create user commands if phxman is loaded
+        vim.api.nvim_create_autocmd('User', {
+          pattern = 'postSwitchToProject',
+          callback = function()
+            require('mdtoc').update_scratch_buffer()
+            require('mdtoc').highlight_active_toc_entry()
+            require('mdtoc').attach_main_buf_autocmds()
+            require('mdtoc').attach_toc_buf_autocmds()
+            require('mdtoc').fix_statusline()
+          end,
+        })
+
+        -- First time start it up
+        vim.defer_fn(function()
+          require('mdtoc').start()
+          require('mdtoc').update_scratch_buffer()
+        end, 1)
       end,
     })
 
-    vim.api.nvim_create_autocmd('User', {
-      pattern = 'postSwitchToProject',
-      callback = function()
-        require('mdtoc').enable()
-      end,
-    })
-
-    -- When the plugin is loaded first time, start the plugin
-    require('mdtoc').start()
-
-    -- why this defer is the case I do not know,
-    -- but intuition tells me...
-    -- If Treesitter hasn't fully parsed the Markdown/Lua buffer yet, ...?
-    -- Chat 4o's answer:
-    -- Why Even 1ms Delay Works
-    --    1ms delay doesn’t mean "1ms after now"
-    --    It means "run this after all other queued startup events finish."
-    -- This seem to apply only when nvim is starting up, but after that, it works as a normal timer. Chat 4o's answer:
-    -- 	Before Neovim is fully started → The function waits until startup is done.
-    --	After startup → The function behaves like a normal timer (runs in ~1ms).
-    vim.defer_fn(function()
-      require('mdtoc').enable()
-    end, 1)
   end,
 }
 ```
