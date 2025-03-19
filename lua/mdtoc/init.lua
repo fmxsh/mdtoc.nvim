@@ -806,4 +806,47 @@ function M.telescope_headings()
 		:find()
 end
 
+function M.jump_to(offset)
+	if not last_active_win or not vim.api.nvim_win_is_valid(last_active_win) then
+		return
+	end
+
+	if #toc_headings == 0 then
+		vim.notify("No headings found!", vim.log.levels.WARN)
+		return
+	end
+
+	-- Get current cursor position
+	local cursor_line = vim.api.nvim_win_get_cursor(last_active_win)[1] - 1
+
+	-- Find the index of the current heading
+	local current_index = nil
+	for i, heading in ipairs(toc_headings) do
+		if heading.line <= cursor_line then
+			current_index = i
+		else
+			break
+		end
+	end
+
+	-- Default to the first heading if no match was found
+	if not current_index then
+		current_index = 1
+	end
+
+	-- Compute the target index based on the offset
+	local target_index = current_index + offset
+
+	-- Ensure it stays within bounds
+	if target_index < 1 then
+		target_index = 1
+	elseif target_index > #toc_headings then
+		target_index = #toc_headings
+	end
+
+	-- Jump to the target heading
+	local target_heading = toc_headings[target_index]
+	vim.api.nvim_win_set_cursor(last_active_win, { target_heading.line + 1, 0 })
+end
+
 return M
