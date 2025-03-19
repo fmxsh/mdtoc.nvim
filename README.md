@@ -28,12 +28,16 @@ Requirements:
 
 ## Installation
 
+Two code examples are provided.
+
 Integrated into my own project manager, to close and open on project switching.
 
 This goes into `.config/nvim/lua/custom/plugins/mdtoc.lua`, which is loaded by my highly modified kickstart.lua running Lazy plugin manager.
 
 > [!Note]
 > This is not provided in a user friendly way and not expected to be used as it is. Its my highly specific setup. The plugin is not made addapted for public use.
+
+### Lazy initialization
 
 ```lua
 return {
@@ -78,4 +82,32 @@ return {
 
   end,
 }
+```
+
+### Key bindings for header navigation
+
+Also now supports keybindings, to do like <num>j in normal mode to jump down x, and in context of toc, jump down x headings. <num>p for up.
+
+```lua
+    vim.keymap.set({ 'n', 'v' }, '<C-n>', function()
+      local count = vim.v.count -- Get the count if provided
+      if count > 0 then
+        require('mdtoc').jump_to(count)
+      else
+        require('mdtoc').next_heading()
+      end
+    end, { noremap = true, silent = true })
+
+    vim.keymap.set({ 'n', 'v' }, '<C-p>', function()
+      local count = vim.v.count -- Get the count if provided
+      if count > 0 then
+        require('mdtoc').jump_to(-count)
+      else
+        require('mdtoc').prev_heading()
+      end
+    end, { noremap = true, silent = true })
+
+    --    vim.keymap.set({ 'n', 'v' }, '<C-n>', '<CMD>lua require("mdtoc").next_heading()<CR>', { noremap = true, silent = true })
+    --    vim.keymap.set({ 'n', 'v' }, '<C-p>', '<CMD>lua require("mdtoc").prev_heading()<CR>', { noremap = true, silent = true })
+    vim.keymap.set({ 'n', 'v' }, '<C-h>', '<CMD>lua require("mdtoc").telescope_headings()<CR>', { noremap = true, silent = true })
 ```
