@@ -64,9 +64,9 @@ return {
       },
     }
     vim.api.nvim_create_autocmd('User', {
-      pattern = 'phxmanPostLoaded',
+      pattern = 'phxmPostLoaded',
       callback = function()
-        -- Only create user commands if phxman is loaded
+        -- Only create user commands if phxm is loaded
         vim.api.nvim_create_autocmd('User', {
           pattern = 'postSwitchToProject',
           callback = function()

@@ -7,6 +7,7 @@
 --
 -- ChatGPT o1 fixed my mess when porting this code from using its own float window, to using buffer created by the fixedspace plugin...
 -- Ever experienced porting something and its supposed to be simple, but every action creates more bugs? The more you struggle, the more you sink...
+--
 
 local M = {}
 
