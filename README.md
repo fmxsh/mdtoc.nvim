@@ -4,6 +4,12 @@ _mdtoc_ stands for "Make Dynamic Table Of Contents".
 
 Why? I need visible overview of toc of large markdown files.
 
+> [!NOTE]
+> This supports not just markdown, but anything _Tree-sitter_ can parse.
+
+> [!NOTE]
+> Unrelated AI-features have been included. Not nice code practice. It's all experimental.
+
 Creates a table of contents (toc) for markdown content **or any other format supported by Treesitter** (but you have to write the parser directives for it).
 
 The content is sent to a buf_id, which you create yourself (thus I made a plugin for it, [fixedspace.nvim](https://github.com/fmxsh/fixedspace.nvim)).
