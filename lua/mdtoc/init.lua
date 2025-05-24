@@ -263,6 +263,79 @@ local function extract_headings()
 				end
 			end
 		end
+	elseif ft == "c" then
+		----------------------------------------------------------------------
+		-- For C, capture function definitions (non-inline, non-macro only)
+		----------------------------------------------------------------------
+		local query_str = [[
+(function_definition
+  declarator: [
+    (function_declarator
+      declarator: (identifier) @func_name)
+    (pointer_declarator
+      declarator: (function_declarator
+        declarator: (identifier) @func_name))
+  ]
+) @func
+]]
+
+		local query = vim.treesitter.query.parse("c", query_str)
+		local function_map = {}
+		local seen_functions = {}
+
+		for _, match, _ in query:iter_matches(root, last_active_buf, 0, -1) do
+			local func_node = nil
+			local func_name = nil
+
+			for id, node in pairs(match) do
+				local cap = query.captures[id]
+				local text = vim.treesitter.get_node_text(node, last_active_buf)
+
+				if cap == "func" then
+					func_node = node
+				elseif cap == "func_name" then
+					func_name = text
+				end
+			end
+
+			if func_node and func_name then
+				local start_row, _, end_row, _ = func_node:range()
+				local display_name = func_name
+
+				local unique_key = display_name .. ":" .. start_row
+				if not seen_functions[unique_key] then
+					seen_functions[unique_key] = true
+
+					-- Determine nesting level by walking up AST
+					local level = 1
+					local parent_row = nil
+					local parent = func_node:parent()
+					while parent do
+						local t = parent:type()
+						if t == "function_definition" then
+							parent_row = parent:start()
+							break
+						end
+						parent = parent:parent()
+					end
+					if parent_row and function_map[parent_row] then
+						level = function_map[parent_row].level + 1
+					end
+
+					local func_entry = {
+						text = display_name,
+						level = level,
+						line = start_row,
+						start_line = start_row,
+						end_line = end_row,
+					}
+
+					function_map[start_row] = func_entry
+					table.insert(toc_headings, func_entry)
+					table.insert(headings, string.rep("  ", level - 1) .. "- " .. display_name)
+				end
+			end
+		end
 	elseif ft == "lua" then
 		----------------------------------------------------------------------
 		-- For Lua, capture function definitions
