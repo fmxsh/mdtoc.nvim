@@ -11,6 +11,17 @@
 
 local M = {}
 
+-- Compatibility wrapper for iter_matches (Neovim 0.10 and 0.11)
+function M.iter_matches(query, root, bufnr, s, e)
+	local ok, iter = pcall(query.iter_matches, query, root, bufnr, s, e, { all = false })
+	if ok then
+		return iter
+	end
+	return query:iter_matches(root, bufnr, s, e)
+end
+
+-- Use local reference instead of require()
+local iter_matches = M.iter_matches
 -- Default highlight groups
 local default_opts = {
 	float_width = 25,
@@ -78,10 +89,25 @@ local function extract_headings()
 	end
 
 	local ft = vim.bo[last_active_buf].filetype
-	local parser = vim.treesitter.get_parser(last_active_buf, ft)
+
+	-- Bail out if filetype unsupported
+	local supported = { markdown = true, lua = true, bash = true, sh = true, c = true, php = true }
+	if not supported[ft] then
+		return {}
+	end
+
+	-- Safely get parser
+	local ok, parser = pcall(vim.treesitter.get_parser, last_active_buf, ft)
+	if not ok or not parser then
+		return {}
+	end
+
+	parser:parse() -- Explicit parse still required for Neovim 0.11
+
 	if not parser then
 		return {}
 	end
+	parser:parse() -- Explicit parse required in Neovim 0.11
 	local tree = parser:parse()[1]
 	if not tree then
 		return {}
@@ -115,14 +141,14 @@ local function extract_headings()
 
 		local query = vim.treesitter.query.parse("markdown", query_str)
 
-		for _, match, _ in query:iter_matches(root, last_active_buf, 0, -1) do
+		for _, match, _ in iter_matches(query, root, last_active_buf, 0, -1) do
 			local level
 			local content
 			local heading_node
 
 			for id, node in pairs(match) do
 				local cap = query.captures[id]
-				local text = vim.treesitter.get_node_text(node, last_active_buf)
+				local text = vim.treesitter.get_node_text(node, last_active_buf, { all = true }, "")
 				if cap == "level" and not level then
 					level = #text
 				elseif cap == "content" then
@@ -211,12 +237,12 @@ local function extract_headings()
 		local function_map = {} -- start_row → entry (for nesting)
 		local seen_functions = {} -- prevent duplicates
 
-		for _, match, _ in query:iter_matches(root, last_active_buf, 0, -1) do
+		for _, match, _ in iter_matches(query, root, last_active_buf, 0, -1) do
 			local func_node, func_name
 
 			for id, node in pairs(match) do
 				local cap = query.captures[id]
-				local text = vim.treesitter.get_node_text(node, last_active_buf)
+				local text = vim.treesitter.get_node_text(node, last_active_buf, { all = true }, "")
 
 				if cap == "func" then
 					func_node = node
@@ -283,13 +309,19 @@ local function extract_headings()
 		local function_map = {}
 		local seen_functions = {}
 
-		for _, match, _ in query:iter_matches(root, last_active_buf, 0, -1) do
+		for _, match, _ in iter_matches(query, root, last_active_buf, 0, -1) do
 			local func_node = nil
 			local func_name = nil
 
 			for id, node in pairs(match) do
 				local cap = query.captures[id]
-				local text = vim.treesitter.get_node_text(node, last_active_buf)
+				local text = ""
+				if type(node) == "userdata" then
+					local ok, result = pcall(vim.treesitter.get_node_text, node, last_active_buf, { all = true })
+					if ok then
+						text = result
+					end
+				end
 
 				if cap == "func" then
 					func_node = node
@@ -336,6 +368,88 @@ local function extract_headings()
 				end
 			end
 		end
+	elseif ft == "php" then
+		log("parsing PHP file: " .. last_active_buf)
+		----------------------------------------------------------------------
+		-- For PHP, capture functions, methods, and class declarations
+		----------------------------------------------------------------------
+
+		local query_str = [[
+        (function_definition
+            name: (name) @function_name)
+
+        (method_declaration
+            name: (name) @method_name)
+
+        (class_declaration
+            name: (name) @class_name)
+	]]
+
+		local query = vim.treesitter.query.parse("php", query_str)
+		local function_map = {}
+		local seen_functions = {}
+
+		for _, match, _ in iter_matches(query, root, last_active_buf, 0, -1) do
+			local func_node = nil
+			local func_name = nil
+
+			for id, node in pairs(match) do
+				local cap = query.captures[id]
+				local text = ""
+				if type(node) == "userdata" then
+					local ok, result = pcall(vim.treesitter.get_node_text, node, last_active_buf, { all = true })
+					if ok then
+						text = result
+					end
+				end
+
+				if cap == "function_name" or cap == "method_name" or cap == "class_name" then
+					func_node = node
+					func_name = text
+				end
+			end
+
+			if type(func_node) == "userdata" and func_name and func_name ~= "" then
+				local ok, start_row, _, end_row, _ = pcall(function()
+					return func_node:range()
+				end)
+
+				if ok then
+					local unique_key = func_name .. ":" .. start_row
+					if not seen_functions[unique_key] then
+						seen_functions[unique_key] = true
+
+						-- Determine nesting level (e.g. method inside class = level 2)
+						local level = 1
+						local parent_row = nil
+						local parent = func_node:parent()
+						while parent do
+							local t = parent:type()
+							if t == "class_declaration" then
+								parent_row = parent:start()
+								break
+							end
+							parent = parent:parent()
+						end
+						if parent_row and function_map[parent_row] then
+							level = function_map[parent_row].level + 1
+						end
+
+						local func_entry = {
+							text = func_name,
+							level = level,
+							line = start_row,
+							start_line = start_row,
+							end_line = end_row,
+						}
+
+						function_map[start_row] = func_entry
+						table.insert(toc_headings, func_entry)
+						table.insert(headings, string.rep("  ", level - 1) .. "- " .. func_name)
+					end
+				end
+			end
+		end
 	elseif ft == "lua" then
 		----------------------------------------------------------------------
 		-- For Lua, capture function definitions
@@ -360,14 +474,14 @@ local function extract_headings()
 		--
 		--			for id, node in pairs(match) do
 		--				local cap_name = query.captures[id]
-		--				local text = vim.treesitter.get_node_text(node, last_active_buf)
+		--				local text = vim.treesitter.get_node_text(node, last_active_buf, { all = true }, "")
 		--				if cap_name == "func_name" then
 		--					func_name = text
 		--					start_row = node:start()
 		--				elseif cap_name == "table_name" then
 		--					local table_name = text
 		--					local field_node = match[id + 1] -- Next capture is field_name
-		--					local field_name = vim.treesitter.get_node_text(field_node, last_active_buf)
+		--					local field_name = vim.treesitter.get_node_text(field_node, last_active_buf, { all = true }, "")
 		--					func_name = table_name .. "." .. field_name
 		--					start_row = node:start()
 		--				elseif cap_name == "table_field_name" then
@@ -417,7 +531,7 @@ local function extract_headings()
 		local function_map = {} -- Maps start_row -> function entry (to nest them)
 		local seen_functions = {} -- Prevent duplicates
 
-		for _, match, _ in query:iter_matches(root, last_active_buf, 0, -1) do
+		for _, match, _ in iter_matches(query, root, last_active_buf, 0, -1) do
 			local func_node = nil
 			local func_name = nil
 			local table_name, field_name = nil, nil
@@ -425,7 +539,7 @@ local function extract_headings()
 
 			for id, node in pairs(match) do
 				local cap = query.captures[id]
-				local text = vim.treesitter.get_node_text(node, last_active_buf)
+				local text = vim.treesitter.get_node_text(node, last_active_buf, { all = true }, "")
 
 				if cap == "func" then
 					-- The entire function (function_declaration or function_definition)
